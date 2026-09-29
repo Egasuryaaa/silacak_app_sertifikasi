@@ -29,7 +29,7 @@ class TrackingApiController extends Controller
 
         return response()->json([
             'status'  => 'success',
-            'message' => 'Status resi berhasil ditemukan.',
+            'message' => 'Informasi pelacakan berhasil ditemukan.',
             'data'    => $data,
         ]);
     }
@@ -39,7 +39,9 @@ class TrackingApiController extends Controller
         $validated = $request->validated();
 
         DB::transaction(function () use ($validated) {
-            $shipment = Shipment::where('tracking_number', $validated['tracking_number'])->lockForUpdate()->firstOrFail();
+            $shipment = Shipment::where('tracking_number', $validated['tracking_number'])
+                ->lockForUpdate()
+                ->firstOrFail();
 
             TrackingHistory::create([
                 'shipment_id' => $shipment->id,
@@ -54,12 +56,12 @@ class TrackingApiController extends Controller
             ]);
         });
 
-        // Hapus cache agar pemanggilan berikutnya selalu mendapatkan data terkini
+        // Bersihkan cache Redis agar data terbaru langsung terbaca
         $this->trackingRepo->invalidateCache($validated['tracking_number']);
 
         return response()->json([
             'status'  => 'success',
-            'message' => 'Status pelacakan resi berhasil diperbarui.',
+            'message' => 'Status resi berhasil diperbarui.',
         ]);
     }
 }

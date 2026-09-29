@@ -26,10 +26,10 @@ class ShipmentApiController extends Controller
         $isMember = false;
         if (!empty($validated['customer_id'])) {
             $customer = Customer::find($validated['customer_id']);
-            $isMember = $customer?->is_member ?? false;
+            $isMember = (bool) ($customer?->is_member ?? false);
         }
 
-        // Jalankan subrutin kalkulasi tarif
+        // Kalkulasi tarif lewat service
         $calcDTO = new ShippingCalculationRequestDTO(
             serviceCode: $validated['service_code'],
             actualWeightKg: (float) $validated['actual_weight'],
@@ -45,7 +45,7 @@ class ShipmentApiController extends Controller
         $shipment = DB::transaction(function () use ($validated, $calcResult) {
             $trackingNumber = 'SLC' . strtoupper(Str::random(3)) . date('ymd') . rand(1000, 9999);
 
-            $createdShipment = Shipment::create([
+            $newShipment = Shipment::create([
                 'tracking_number'   => $trackingNumber,
                 'customer_id'       => $validated['customer_id'] ?? null,
                 'origin_branch_id'  => $validated['origin_branch_id'],
@@ -70,23 +70,24 @@ class ShipmentApiController extends Controller
             ]);
 
             TrackingHistory::create([
-                'shipment_id' => $createdShipment->id,
+                'shipment_id' => $newShipment->id,
                 'branch_id'   => $validated['origin_branch_id'],
                 'status'      => 'MANIFEST',
-                'description' => 'Paket telah diterima di loket cabang dan siap dikirim.',
+                'description' => 'Paket diterima di counter asal.',
                 'recorded_at' => now(),
             ]);
 
-            return $createdShipment;
+            return $newShipment;
         });
 
         return response()->json([
             'status'  => 'success',
-            'message' => 'Paket berhasil didaftarkan.',
+            'message' => 'Pengiriman berhasil didaftarkan.',
             'data'    => [
                 'tracking_number'   => $shipment->tracking_number,
                 'chargeable_weight' => $shipment->chargeable_weight,
                 'total_fee'         => $shipment->total_fee,
+                'label_url'         => route('shipments.print-label', $shipment->tracking_number),
             ],
         ], 201);
     }

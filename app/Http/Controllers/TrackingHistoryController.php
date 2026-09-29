@@ -2,64 +2,64 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Shipment;
 use App\Models\TrackingHistory;
+use App\Repositories\ShipmentTrackingRepository;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TrackingHistoryController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function __construct(
+        protected ShipmentTrackingRepository $trackingRepo
+    ) {}
+
+    public function index(Request $request): JsonResponse
     {
-        //
+        $request->validate(['tracking_number' => 'required|string']);
+
+        $shipment = Shipment::where('tracking_number', $request->tracking_number)->firstOrFail();
+        $histories = $shipment->trackingHistories()->with('branch')->orderBy('recorded_at', 'asc')->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data'   => $histories,
+        ]);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    public function store(Request $request): JsonResponse
     {
-        //
-    }
+        $validated = $request->validate([
+            'shipment_id' => 'required|exists:shipments,id',
+            'branch_id'   => 'nullable|exists:branches,id',
+            'status'      => 'required|string|in:MANIFEST,ON_TRANSIT,OUT_FOR_DELIVERY,DELIVERED',
+            'description' => 'required|string|max:255',
+        ]);
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
+        $history = DB::transaction(function () use ($validated) {
+            $shipment = Shipment::findOrFail($validated['shipment_id']);
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(TrackingHistory $trackingHistory)
-    {
-        //
-    }
+            $newHistory = TrackingHistory::create([
+                'shipment_id' => $shipment->id,
+                'branch_id'   => $validated['branch_id'] ?? null,
+                'status'      => $validated['status'],
+                'description' => $validated['description'],
+                'recorded_at' => now(),
+            ]);
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(TrackingHistory $trackingHistory)
-    {
-        //
-    }
+            $shipment->update(['current_status' => $validated['status']]);
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, TrackingHistory $trackingHistory)
-    {
-        //
-    }
+            // Invalidation cache Redis
+            $this->trackingRepo->invalidateCache($shipment->tracking_number);
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(TrackingHistory $trackingHistory)
-    {
-        //
+            return $newHistory;
+        });
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'Riwayat pelacakan berhasil ditambahkan.',
+            'data'    => $history,
+        ], 201);
     }
 }
